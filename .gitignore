@@ -1,0 +1,38 @@
+# --- Node ---
+node_modules/
+.next/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Python ---
+pycache/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.env
+*.log
+
+# --- Docker / build ---
+*.pid
+.DS_Store
+*.sqlite3
+.db
+/data/
+!/abu_engine/data/placeholder.txt
+dist/
+build/
+tmp/
+logs/
+
+# --- VSCode ---
+.vscode/
+*.code-workspace
+
+# --- Coverage / test ---
+coverage/
+.pytest_cache/
+.coverage
