@@ -1,28 +1,28 @@
-# Flujo de Interpretación: Abu → Lilly
+# Interpretation Flow: Abu → Lilly
 
-Este documento explica cómo se orquesta la interpretación astrológica end-to-end usando Abu Engine (cálculo) y Lilly Engine (LLM).
+This document explains how astrological interpretation is orchestrated end-to-end using Abu Engine (calculation) and Lilly Engine (LLM).
 
-## Arquitectura
+## Architecture
 
 ```
-Usuario/Frontend
+User/Frontend
       ↓
 POST /api/astro/interpret (Abu)
       ↓
-POST /analyze (Abu interno)
-      ↓ (payload consolidado)
+POST /analyze (Abu internal)
+      ↓ (consolidated payload)
 core.interpreter_llm.interpret_analysis
       ↓ (HTTP POST)
 POST /api/ai/interpret (Lilly)
       ↓ (JSON: headline, narrative, actions, astro_metadata)
-Response → Usuario/Frontend
+Response → User/Frontend
 ```
 
 ## Endpoints
 
 ### 1) POST /api/astro/interpret (Abu Engine)
 
-**Objetivo**: Endpoint único para obtener interpretación directa desde datos natales.
+**Purpose**: Single endpoint to obtain direct interpretation from natal data.
 
 **Input**:
 ```json
@@ -30,17 +30,17 @@ Response → Usuario/Frontend
   "birthDate": "1990-01-01T12:00:00Z",
   "lat": -34.6037,
   "lon": -58.3816,
-  "language": "es"  // opcional (default: "es")
+  "language": "es"  // optional (default: "es")
 }
 ```
 
-**Flujo interno**:
-1. Valida parámetros (400 si faltan, 422 si fecha inválida).
-2. Construye payload vía POST /analyze interno (chart + derived + life_cycles + forecast).
-3. Llama a `core.interpreter_llm.interpret_analysis(payload, language)`.
-4. Devuelve el JSON de Lilly tal cual.
+**Internal flow**:
+1. Validates parameters (400 if missing, 422 if invalid date).
+2. Builds payload via internal POST /analyze (chart + derived + life_cycles + forecast).
+3. Calls `core.interpreter_llm.interpret_analysis(payload, language)`.
+4. Returns Lilly's JSON as-is.
 
-**Respuesta (200)**:
+**Response (200)**:
 ```json
 {
   "headline": "Ciclo de aprendizaje y transformación",
@@ -51,25 +51,25 @@ Response → Usuario/Frontend
     "Cultiva relaciones significativas"
   ],
   "astro_metadata": {
-    "source": "openai",  // o "fallback" si no hay LLM
+    "source": "openai",  // or "fallback" if no LLM
     "language": "es",
     "events": 3
   }
 }
 ```
 
-**Errores**:
+**Errors**:
 - 400: Missing birthDate/lat/lon
 - 422: Invalid date format
-- 502: Lilly unreachable (timeout/conexión) o error interno de Lilly
+- 502: Lilly unreachable (timeout/connection) or Lilly internal error
 
-**Logging**: Registra duración total del flujo en ms.
+**Logging**: Records total flow duration in ms.
 
 ---
 
-### 2) POST /analyze (Abu Engine, interno)
+### 2) POST /analyze (Abu Engine, internal)
 
-**Objetivo**: Componer todos los cálculos astrológicos en un único payload.
+**Purpose**: Compose all astrological calculations into a single payload.
 
 **Input**:
 ```json
@@ -80,7 +80,7 @@ Response → Usuario/Frontend
 }
 ```
 
-**Output** (extendido con life_cycles y forecast):
+**Output** (extended with life_cycles and forecast):
 ```json
 {
   "person": { "name": null, "question": "" },
@@ -107,14 +107,14 @@ Response → Usuario/Frontend
 }
 ```
 
-**Manejo de errores por bloque**:
-- Si un bloque falla (ej: pyswisseph no disponible), devuelve `{"error": "module not available"}` en ese bloque y continúa con los demás.
+**Error handling per block**:
+- If a block fails (e.g., pyswisseph unavailable), returns `{"error": "module not available"}` for that block and continues with others.
 
 ---
 
 ### 3) POST /api/ai/interpret (Lilly Engine)
 
-**Objetivo**: Generar interpretación narrativa en JSON a partir del payload de Abu.
+**Purpose**: Generate narrative interpretation in JSON from Abu's payload.
 
 **Input**:
 ```json
@@ -137,91 +137,91 @@ Response → Usuario/Frontend
 }
 ```
 
-**Configuración**:
-- Variable de entorno `OPENAI_API_KEY` en Lilly para usar GPT-4.
-- Sin clave o con `USE_ASSISTANTS=false`, Lilly retorna fallback desde `archetypes.json`.
+**Configuration**:
+- Environment variable `OPENAI_API_KEY` in Lilly to use GPT-4.
+- Without key or with `USE_ASSISTANTS=false`, Lilly returns fallback from `archetypes.json`.
 
 ---
 
-## Cliente interno: `core.interpreter_llm.interpret_analysis`
+## Internal Client: `core.interpreter_llm.interpret_analysis`
 
-**Ubicación**: `abu_engine/core/interpreter_llm.py`
+**Location**: `abu_engine/core/interpreter_llm.py`
 
-**Función**:
+**Function**:
 ```python
 def interpret_analysis(payload: Dict[str, Any], language: str = "es") -> Dict[str, Any]:
     """
-    Envía el payload agregado de Abu a Lilly y devuelve la interpretación JSON.
+    Sends Abu's aggregated payload to Lilly and returns the JSON interpretation.
     
     Args:
-        payload: Output de /analyze (chart, derived, life_cycles, forecast).
-        language: Idioma de la interpretación ("es", "en", "pt", "fr").
+        payload: Output from /analyze (chart, derived, life_cycles, forecast).
+        language: Interpretation language ("es", "en", "pt", "fr").
     
     Returns:
-        dict con claves: headline, narrative, actions, astro_metadata.
+        dict with keys: headline, narrative, actions, astro_metadata.
         
     Raises:
-        RuntimeError: si la respuesta de Lilly no cumple el contrato.
+        RuntimeError: if Lilly's response doesn't meet the contract.
         
-    Devuelve {"error": "Lilly unreachable"} si hay timeout/conexión.
+    Returns {"error": "Lilly unreachable"} if timeout/connection error.
     """
 ```
 
-**Configuración**:
-- Variable de entorno `LILLY_API_URL` (default: `http://lilly_engine:8001` para Docker Compose).
-- Timeout: 15 segundos.
+**Configuration**:
+- Environment variable `LILLY_API_URL` (default: `http://lilly_engine:8001` for Docker Compose).
+- Timeout: 15 seconds.
 
-**Validación**:
-- Verifica que la respuesta contenga las llaves requeridas: `headline`, `narrative`, `actions`, `astro_metadata`.
-- Levanta `RuntimeError` si falta alguna clave o el JSON es inválido.
+**Validation**:
+- Verifies response contains required keys: `headline`, `narrative`, `actions`, `astro_metadata`.
+- Raises `RuntimeError` if any key is missing or JSON is invalid.
 
 ---
 
-## Configuración y Variables de Entorno
+## Configuration and Environment Variables
 
 ### Abu Engine
 
-| Variable | Default | Descripción |
+| Variable | Default | Description |
 |----------|---------|-------------|
-| `LILLY_API_URL` | `http://lilly_engine:8001` | URL base de Lilly Engine (sin trailing slash) |
+| `LILLY_API_URL` | `http://lilly_engine:8001` | Lilly Engine base URL (no trailing slash) |
 
 ### Lilly Engine
 
-| Variable | Default | Descripción |
+| Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENAI_API_KEY` | - | Clave API de OpenAI para GPT-4 (opcional; si no existe, usa fallback) |
-| `USE_ASSISTANTS` | `true` | Usar OpenAI Assistants API (si `false`, usa archetypes) |
-| `ABU_URL` | `http://abu_engine:8000` | URL de Abu Engine (para llamadas inversas si fueran necesarias) |
+| `OPENAI_API_KEY` | - | OpenAI API key for GPT-4 (optional; uses fallback if missing) |
+| `USE_ASSISTANTS` | `true` | Use OpenAI Assistants API (if `false`, uses archetypes) |
+| `ABU_URL` | `http://abu_engine:8000` | Abu Engine URL (for reverse calls if needed) |
 
 ---
 
-## Flujo de Datos Detallado
+## Detailed Data Flow
 
-1. **Usuario envía POST a /api/astro/interpret**
+1. **User sends POST to /api/astro/interpret**
    - Body: `{ birthDate, lat, lon, language? }`
 
-2. **Abu valida entrada**
-   - 400 si faltan parámetros
-   - 422 si birthDate es inválido
+2. **Abu validates input**
+   - 400 if missing parameters
+   - 422 if birthDate is invalid
 
-3. **Abu construye payload consolidado**
-   - Llama internamente a `analyze()` para obtener:
+3. **Abu builds consolidated payload**
+   - Internally calls `analyze()` to obtain:
      - chart (planets + houses)
      - derived (sect, firdaria, profection, lunar_transit)
-     - life_cycles (eventos mayores)
+     - life_cycles (major events)
      - forecast (timeseries + peaks)
 
-4. **Abu invoca cliente interno**
-   - `interpret_analysis(payload, language)` POST a `{LILLY_API_URL}/api/ai/interpret`
+4. **Abu invokes internal client**
+   - `interpret_analysis(payload, language)` POST to `{LILLY_API_URL}/api/ai/interpret`
 
-5. **Lilly procesa y responde**
-   - Con OPENAI_API_KEY: usa GPT-4 para generar interpretación personalizada
-   - Sin OPENAI_API_KEY: usa fallback desde `archetypes.json`
-   - Retorna JSON con headline/narrative/actions/astro_metadata
+5. **Lilly processes and responds**
+   - With OPENAI_API_KEY: uses GPT-4 to generate personalized interpretation
+   - Without OPENAI_API_KEY: uses fallback from `archetypes.json`
+   - Returns JSON with headline/narrative/actions/astro_metadata
 
-6. **Abu devuelve respuesta a usuario**
-   - 200 con el JSON de Lilly
-   - 502 si Lilly no responde o devuelve error
+6. **Abu returns response to user**
+   - 200 with Lilly's JSON
+   - 502 if Lilly doesn't respond or returns error
 
 ---
 
@@ -229,24 +229,24 @@ def interpret_analysis(payload: Dict[str, Any], language: str = "es") -> Dict[st
 
 ### `abu_engine/tests/test_interpret_contract.py`
 
-- `test_interpret_contract_shape()`: Verifica que la respuesta tenga las llaves requeridas (headline, narrative, actions, astro_metadata) cuando Lilly responde 200.
-- `test_interpret_missing_params()`: Verifica que retorne 400 si faltan birthDate/lat/lon.
-- `test_interpret_invalid_date()`: Verifica que retorne 422 si birthDate es inválido.
+- `test_interpret_contract_shape()`: Verifies response has required keys (headline, narrative, actions, astro_metadata) when Lilly responds 200.
+- `test_interpret_missing_params()`: Verifies returns 400 if birthDate/lat/lon missing.
+- `test_interpret_invalid_date()`: Verifies returns 422 if birthDate is invalid.
 
-**Ejecución**:
+**Execution**:
 ```powershell
 D:/projects/AI_Oracle/venv/Scripts/python.exe -m pytest -q d:/projects/AI_Oracle/abu_engine/tests/test_interpret_contract.py
 ```
 
 ### `abu_engine/tests/test_analyze_contract.py`
 
-- Verifica que POST /analyze retorne el shape esperado (ampliado con life_cycles y forecast).
+- Verifies POST /analyze returns expected shape (extended with life_cycles and forecast).
 
 ---
 
-## Ejemplo de Uso
+## Usage Example
 
-### Con PowerShell
+### With PowerShell
 
 ```powershell
 $body = @{
@@ -262,7 +262,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/api/astro/interpret `
   -Body $body | ConvertTo-Json -Depth 8
 ```
 
-### Con curl
+### With curl
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/astro/interpret \
@@ -281,53 +281,53 @@ curl -X POST http://127.0.0.1:8000/api/astro/interpret \
 
 ### Error 502: Lilly unreachable
 
-**Causa**: Lilly no está corriendo o `LILLY_API_URL` apunta a una URL incorrecta.
+**Cause**: Lilly is not running or `LILLY_API_URL` points to incorrect URL.
 
-**Solución**:
-1. Verificar que Lilly esté corriendo:
+**Solution**:
+1. Verify Lilly is running:
    ```powershell
    docker compose ps
    ```
-2. Verificar logs de Lilly:
+2. Check Lilly logs:
    ```powershell
    docker compose logs lilly_engine
    ```
-3. Verificar conectividad desde Abu:
+3. Verify connectivity from Abu:
    ```powershell
    docker exec abu_engine curl -I http://lilly_engine:8001/
    ```
 
-### Respuesta con `"source": "fallback"`
+### Response with `"source": "fallback"`
 
-**Causa**: Lilly no tiene configurada `OPENAI_API_KEY` o `USE_ASSISTANTS=false`.
+**Cause**: Lilly doesn't have `OPENAI_API_KEY` configured or `USE_ASSISTANTS=false`.
 
-**Solución**:
-1. Agregar `OPENAI_API_KEY` en `.env` o `docker-compose.yml`:
+**Solution**:
+1. Add `OPENAI_API_KEY` in `.env` or `docker-compose.yml`:
    ```yaml
    environment:
      - OPENAI_API_KEY=sk-...
    ```
-2. Reiniciar Lilly:
+2. Restart Lilly:
    ```powershell
    docker compose restart lilly_engine
    ```
 
-### Tests fallan con "module not available"
+### Tests fail with "module not available"
 
-**Causa**: Dependencias faltantes (pyswisseph, skyfield) o efemérides no cargadas.
+**Cause**: Missing dependencies (pyswisseph, skyfield) or ephemeris not loaded.
 
-**Solución**:
-1. Verificar que `de440s.bsp` esté en `abu_engine/data/`.
-2. Rebuildar Abu:
+**Solution**:
+1. Verify `de440s.bsp` is in `abu_engine/data/`.
+2. Rebuild Abu:
    ```powershell
    docker compose up -d --build abu_engine
    ```
 
 ---
 
-## Próximos Pasos
+## Next Steps
 
-- **Caché de payloads**: Evitar recalcular el mismo payload si birthDate/lat/lon no cambian.
-- **Streaming**: Implementar SSE para respuestas progresivas de Lilly (si OpenAI soporta streaming).
-- **Multi-idioma**: Expandir soporte a pt/fr/en con prompts específicos en Lilly.
-- **Validación con Zod/Pydantic**: Agregar schemas estrictos para payloads de entrada/salida.
+- **Payload caching**: Avoid recalculating same payload if birthDate/lat/lon unchanged.
+- **Streaming**: Implement SSE for progressive Lilly responses (if OpenAI supports streaming).
+- **Multi-language**: Expand pt/fr/en support with specific prompts in Lilly.
+- **Validation with Zod/Pydantic**: Add strict schemas for input/output payloads.

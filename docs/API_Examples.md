@@ -1,24 +1,24 @@
 # API Examples (Abu Engine)
 
-Ejemplos prácticos de requests y responses para los endpoints principales.
+Practical examples of requests and responses for main endpoints.
 
-**💡 Documentación interactiva completa**: Visita `/docs` (Swagger UI) o `/redoc` (ReDoc) en el servidor para ver ejemplos inline, campos detallados y requests de prueba.
+**💡 Full interactive documentation**: Visit `/docs` (Swagger UI) or `/redoc` (ReDoc) on the server to see inline examples, detailed fields, and test requests.
 
-## Tabla rápida
-| Endpoint | Método | Uso | Notas |
+## Quick Reference
+| Endpoint | Method | Use | Notes |
 |----------|--------|-----|-------|
-| `/analyze` | POST | Análisis agregado | Usa birth + current; incluye ejemplos en /docs |
-| `/analyze/contract` | GET | JSON Schema del contrato | Validación UI |
-| `/api/astro/interpret` | POST | Orquestación cálculo + LLM | Fallback si Lilly cae; ver /docs para multi-idioma |
-| `/api/astro/solar-return` | GET | Carta de Revolución Solar | Año opcional |
-| `/api/astro/forecast` | GET | Serie temporal + picos | Requiere rango fechas |
-| `/api/astro/life-cycles` | GET | Eventos mayores (Saturn Return, etc.) | Sólo birthDate |
+| `/analyze` | POST | Aggregated analysis | Uses birth + current; includes examples in /docs |
+| `/analyze/contract` | GET | JSON Schema contract | UI validation |
+| `/api/astro/interpret` | POST | Calculation + LLM orchestration | Fallback if Lilly down; see /docs for multi-language |
+| `/api/astro/solar-return` | GET | Solar Return chart | Optional year |
+| `/api/astro/forecast` | GET | Time series + peaks | Requires date range |
+| `/api/astro/life-cycles` | GET | Major events (Saturn Return, etc.) | Only birthDate |
 
 ---
 ## 1. POST /analyze
-**🔗 Ver documentación completa en `/docs` con ejemplos reales de Buenos Aires (5 Julio 1978, 18:15)**
+**🔗 See full documentation in `/docs` with real examples from Buenos Aires (July 5 1978, 18:15)**
 
-Request mínimo:
+Minimal request:
 ```json
 {
   "birth": { "date": "1990-01-01T12:00:00Z", "lat": -34.6037, "lon": -58.3816 },
@@ -31,7 +31,7 @@ curl -X POST http://localhost:8000/analyze \
   -H "Content-Type: application/json" \
   -d '{"birth":{"date":"1990-01-01T12:00:00Z","lat":-34.6037,"lon":-58.3816},"current":{"lat":-34.6037,"lon":-58.3816}}'
 ```
-Respuesta (recortada):
+Response (truncated):
 ```json
 {
   "chart": {
@@ -49,22 +49,22 @@ Respuesta (recortada):
 }
 ```
 
-### Errores comunes
-| Código | Motivo |
+### Common Errors
+| Code | Reason |
 |--------|--------|
-| 400 | Parámetros faltantes |
-| 422 | Fecha inválida (formato) |
-| 500 | Error interno (bloque individual) |
+| 400 | Missing parameters |
+| 422 | Invalid date (format) |
+| 500 | Internal error (individual block) |
 
 ---
 ## 2. GET /analyze/contract
-**🔗 Ver documentación completa en `/docs` con explicaciones de uso (Zod, TypeScript, validación)**
+**🔗 See full documentation in `/docs` with usage explanations (Zod, TypeScript, validation)**
 
-Describe la forma exacta del JSON esperado de `/analyze`.
+Describes the exact JSON shape expected from `/analyze`.
 ```bash
 curl http://localhost:8000/analyze/contract
 ```
-Respuesta (resumen):
+Response (summary):
 ```json
 {
   "title": "AnalyzeResponse",
@@ -73,13 +73,13 @@ Respuesta (resumen):
   "properties": { "chart": {"type":"object"}, "derived": {"type":"object"}, "life_cycles": {}, "forecast": {} }
 }
 ```
-Usar este schema para validar en frontend (Zod si se desea).
+Use this schema for frontend validation (Zod if desired).
 
 ---
 ## 3. POST /api/astro/interpret
-**🔗 Ver documentación completa en `/docs` con ejemplos multi-idioma (es/en/pt/fr) y fallback behavior**
+**🔗 See full documentation in `/docs` with multi-language examples (es/en/pt/fr) and fallback behavior**
 
-Request mínimo:
+Minimal request:
 ```json
 {
   "birthDate": "1990-01-01T12:00:00Z",
@@ -94,7 +94,7 @@ curl -X POST http://localhost:8000/api/astro/interpret \
   -H "Content-Type: application/json" \
   -d '{"birthDate":"1990-01-01T12:00:00Z","lat":-34.6037,"lon":-58.3816,"language":"es"}'
 ```
-Respuesta (fallback ejemplo):
+Response (fallback example):
 ```json
 {
   "headline": "Claridad y enfoque",
@@ -103,11 +103,11 @@ Respuesta (fallback ejemplo):
   "astro_metadata": {"source": "fallback", "language": "es"}
 }
 ```
-### Errores
-| Código | Motivo |
+### Errors
+| Code | Reason |
 |--------|--------|
-| 422 | Fecha inválida |
-| 502 | Lilly no disponible |
+| 422 | Invalid date |
+| 502 | Lilly unavailable |
 
 ---
 ## 4. GET /api/astro/solar-return
@@ -154,12 +154,12 @@ Respuesta:
 ```
 
 ---
-## 7. Notas sobre Caché
-- Planetary positions cache: TTL 12h (clave por minuto redondeado + lat/lon).
-- Firdaria cache: TTL 12h (clave por birth_date día + query_date día + secta).
-- Logs `Cache hit/miss` visibles si `ABU_VERBOSE=1`.
+## 7. Cache Notes
+- Planetary positions cache: TTL 12h (key by rounded minute + lat/lon).
+- Firdaria cache: TTL 12h (key by birth_date day + query_date day + sect).
+- `Cache hit/miss` logs visible if `ABU_VERBOSE=1`.
 
-## 8. Integración Frontend (Ejemplo rápido)
+## 8. Frontend Integration (Quick Example)
 ```typescript
 import { analyze } from "@/clients/abu";
 const data = await analyze({
@@ -170,53 +170,53 @@ console.log(data.derived.sect);
 ```
 
 ## 9. Troubleshooting
-| Problema | Causa | Solución |
+| Problem | Cause | Solution |
 |----------|-------|----------|
-| 422 en /analyze | Fecha mal formateada | Asegurar sufijo Z o offset | 
-| 502 en /interpret | Lilly caído | Revisar logs y OPENAI_API_KEY |
-| Campos vacíos | Input incompleto | Enviar birth y current |
-| No mejora performance | Cache frío | Repetir llamada para calentar |
+| 422 in /analyze | Malformed date | Ensure Z suffix or offset | 
+| 502 in /interpret | Lilly down | Check logs and OPENAI_API_KEY |
+| Empty fields | Incomplete input | Send birth and current |
+| No performance improvement | Cold cache | Repeat call to warm up |
 
 ---
 ## 10. Logging (Structured / Verbose)
 
-Abu soporta logging estructurado JSON cuando se exporta la variable de entorno `ABU_VERBOSE=1`.
+Abu supports structured JSON logging when the environment variable `ABU_VERBOSE=1` is exported.
 
-Formato de cada línea:
+Format per line:
 ```json
 {"ts":"2025-11-07T12:34:56.123456+00:00","level":"INFO","event":"analyze.blocks","meta":{"dur_ms":42.7,"chart_ms":3.1,"houses_ms":5.4,"positions_ms":8.2,"firdaria_ms":4.7,"profection_ms":1.9,"lunar_ms":2.3,"cycles_ms":6.0,"forecast_ms":10.8}}
 ```
 
-Eventos clave:
-- `request`: Cada request HTTP (path, method, status, dur_ms)
-- `analyze.blocks`: Duraciones internas por bloque de cálculo
-- `interpret.pipeline`: Tiempos de analyze vs llamada a Lilly
-- Caché (hit/miss) ya existente se muestra en modo verbose
+Key events:
+- `request`: Every HTTP request (path, method, status, dur_ms)
+- `analyze.blocks`: Internal durations per calculation block
+- `interpret.pipeline`: Times for analyze vs Lilly call
+- Cache (hit/miss) already shown in verbose mode
 
-Activar (PowerShell / Windows):
+Activate (PowerShell / Windows):
 ```powershell
 $env:ABU_VERBOSE=1; uvicorn abu_engine.main:app --reload --port 8000
 ```
 
-Desactivar:
+Deactivate:
 ```powershell
 Remove-Item Env:ABU_VERBOSE; uvicorn abu_engine.main:app --reload --port 8000
 ```
 
-Filtrar eventos con `jq`:
+Filter events with `jq`:
 ```bash
 uvicorn abu_engine.main:app --port 8000 | jq 'select(.event=="analyze.blocks")'
 ```
 
-Ejemplo filtrando requests lentos (>300 ms):
+Example filtering slow requests (>300 ms):
 ```bash
 uvicorn abu_engine.main:app --port 8000 | jq 'select(.event=="request" and .meta.dur_ms>300)'
 ```
 
-Uso en producción: recolectar sólo JSON y enviar a agregador (Elastic, Loki, etc.). El formato es line-oriented para fácil parsing.
+Production usage: collect only JSON and send to aggregator (Elastic, Loki, etc.). Format is line-oriented for easy parsing.
 
 ---
-## Referencias
+## References
 - `docs/Analyze_Endpoint_Contract.md`
 - `docs/Interpret_Flow.md`
 - `next_app/types/contracts.ts`
