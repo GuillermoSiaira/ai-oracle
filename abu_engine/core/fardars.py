@@ -3,7 +3,7 @@ Fardars (Firdaria) - Períodos Planetarios Persas
 Sistema de períodos mayores y subperíodos según secta (diurna/nocturna).
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 
 
@@ -134,6 +134,9 @@ def calculate_sub_periods(
     return sub_periods
 
 
+from core.cache import cache_firdaria
+
+
 def get_current_fardar(
     birth_date: datetime,
     is_diurnal: bool,
@@ -158,31 +161,29 @@ def get_current_fardar(
     if query_date is None:
         query_date = datetime.utcnow()
     
-    fardars = calculate_fardars(birth_date, is_diurnal)
-    
-    for fardar in fardars:
-        fardar_start = datetime.fromisoformat(fardar["start"])
-        fardar_end = datetime.fromisoformat(fardar["end"])
-        
-        if fardar_start <= query_date < fardar_end:
-            # Buscar subperíodo activo
-            for sub in fardar["sub"]:
-                sub_start = datetime.fromisoformat(sub["start"])
-                sub_end = datetime.fromisoformat(sub["end"])
-                
-                if sub_start <= query_date < sub_end:
-                    return {
-                        "major": fardar["major"],
-                        "sub": sub["planet"],
-                        "start": sub["start"],
-                        "end": sub["end"]
-                    }
-    
-    # Si está fuera del rango de 75 años
-    return {
-        "major": "N/A",
-        "sub": "N/A",
-        "start": None,
-        "end": None,
-        "note": "Outside of 75-year Fardar cycle"
-    }
+    def _compute():
+        fardars = calculate_fardars(birth_date, is_diurnal)
+        for fardar in fardars:
+            fardar_start = datetime.fromisoformat(fardar["start"])
+            fardar_end = datetime.fromisoformat(fardar["end"])
+            if fardar_start <= query_date < fardar_end:
+                for sub in fardar["sub"]:
+                    sub_start = datetime.fromisoformat(sub["start"])
+                    sub_end = datetime.fromisoformat(sub["end"])
+                    if sub_start <= query_date < sub_end:
+                        return {
+                            "major": fardar["major"],
+                            "sub": sub["planet"],
+                            "start": sub["start"],
+                            "end": sub["end"],
+                        }
+        return {
+            "major": "N/A",
+            "sub": "N/A",
+            "start": None,
+            "end": None,
+            "note": "Outside of 75-year Fardar cycle",
+        }
+
+    # Use caching wrapper
+    return cache_firdaria(birth_date, query_date, is_diurnal, _compute)

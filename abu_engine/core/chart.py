@@ -9,6 +9,7 @@ from pathlib import Path
 import urllib.request
 import logging
 from core.aspects import aspect_between
+from core.cache import cache_ephemeris_positions
 
 # Singleton para efemérides
 class EphemerisSingleton:
@@ -86,11 +87,11 @@ SUPPORTED_ASPECTS = {
 }
 ASPECT_ORB = 6.0
 
-def chart_json(lat: float, lon: float, date: datetime) -> ChartDTO:
+def _compute_planet_positions(date: datetime) -> Dict[str, float]:
+    """Inner computation of planetary longitudes (ecliptic) for caching."""
     planets = EphemerisSingleton()
     ts = load.timescale()
     t = ts.from_datetime(date)
-    location = Topos(latitude_degrees=lat, longitude_degrees=lon)
     earth = planets['earth']
     bodies = {
         'Sun': planets['sun'],
@@ -104,30 +105,52 @@ def chart_json(lat: float, lon: float, date: datetime) -> ChartDTO:
         'Neptune': planets['neptune barycenter'],
         'Pluto': planets['pluto barycenter']
     }
-    planet_positions = {}
-    planet_dtos = []
+    positions: Dict[str, float] = {}
     for name, body in bodies.items():
         pos = earth.at(t).observe(body)
         _, lon_val, _ = pos.ecliptic_latlon()
         lon_norm = normalize_lon(lon_val.degrees)
-        planet_positions[name] = lon_norm
-        planet_dtos.append(PlanetDTO(name=name, lon=lon_norm, sign=get_sign(lon_norm), house=None))
-    aspects = []
+        positions[name] = lon_norm
+    return positions
+
+
+def chart_json(lat: float, lon: float, date: datetime) -> ChartDTO:
+    # Use cache for planetary positions
+    planet_positions = cache_ephemeris_positions(
+        date,
+        lat,
+        lon,
+        lambda: _compute_planet_positions(date)
+    )
+    planet_dtos = [
+        PlanetDTO(name=name, lon=lon_val, sign=get_sign(lon_val), house=None)
+        for name, lon_val in planet_positions.items()
+    ]
+    # Compute aspects from cached positions
+    aspects: List[AspectDTO] = []
     names = list(planet_positions.keys())
     for i in range(len(names)):
-        for j in range(i+1, len(names)):
+        for j in range(i + 1, len(names)):
             a_name, b_name = names[i], names[j]
             angle = abs(planet_positions[a_name] - planet_positions[b_name])
             angle = min(angle, 360 - angle)
             for asp_type, asp_angle in SUPPORTED_ASPECTS.items():
                 orb = abs(angle - asp_angle)
                 if orb <= ASPECT_ORB:
-                    aspects.append(AspectDTO(a=a_name, b=b_name, type=asp_type, orb=round(orb,2), angle=round(angle,2)))
+                    aspects.append(
+                        AspectDTO(
+                            a=a_name,
+                            b=b_name,
+                            type=asp_type,
+                            orb=round(orb, 2),
+                            angle=round(angle, 2),
+                        )
+                    )
     return ChartDTO(
         datetime=date.isoformat(),
         location={"lat": lat, "lon": lon},
         planets=planet_dtos,
-        aspects=aspects
+        aspects=aspects,
     )
 
 
