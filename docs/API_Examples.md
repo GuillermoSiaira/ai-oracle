@@ -170,6 +170,44 @@ console.log(data.derived.sect);
 | No mejora performance | Cache frío | Repetir llamada para calentar |
 
 ---
+## 10. Logging (Structured / Verbose)
+
+Abu soporta logging estructurado JSON cuando se exporta la variable de entorno `ABU_VERBOSE=1`.
+
+Formato de cada línea:
+```json
+{"ts":"2025-11-07T12:34:56.123456+00:00","level":"INFO","event":"analyze.blocks","meta":{"dur_ms":42.7,"chart_ms":3.1,"houses_ms":5.4,"positions_ms":8.2,"firdaria_ms":4.7,"profection_ms":1.9,"lunar_ms":2.3,"cycles_ms":6.0,"forecast_ms":10.8}}
+```
+
+Eventos clave:
+- `request`: Cada request HTTP (path, method, status, dur_ms)
+- `analyze.blocks`: Duraciones internas por bloque de cálculo
+- `interpret.pipeline`: Tiempos de analyze vs llamada a Lilly
+- Caché (hit/miss) ya existente se muestra en modo verbose
+
+Activar (PowerShell / Windows):
+```powershell
+$env:ABU_VERBOSE=1; uvicorn abu_engine.main:app --reload --port 8000
+```
+
+Desactivar:
+```powershell
+Remove-Item Env:ABU_VERBOSE; uvicorn abu_engine.main:app --reload --port 8000
+```
+
+Filtrar eventos con `jq`:
+```bash
+uvicorn abu_engine.main:app --port 8000 | jq 'select(.event=="analyze.blocks")'
+```
+
+Ejemplo filtrando requests lentos (>300 ms):
+```bash
+uvicorn abu_engine.main:app --port 8000 | jq 'select(.event=="request" and .meta.dur_ms>300)'
+```
+
+Uso en producción: recolectar sólo JSON y enviar a agregador (Elastic, Loki, etc.). El formato es line-oriented para fácil parsing.
+
+---
 ## Referencias
 - `docs/Analyze_Endpoint_Contract.md`
 - `docs/Interpret_Flow.md`

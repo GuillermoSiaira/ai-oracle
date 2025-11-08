@@ -1,5 +1,5 @@
 ﻿# -*- coding: utf-8 -*-
-from fastapi import FastAPI, HTTPException, Query, Body
+from fastapi import FastAPI, HTTPException, Query, Body, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -22,6 +22,7 @@ from core.extended_calc import (
 from core.solar_return_ranking import rank_solar_return_locations, RELOCATION_CITIES
 import logging
 import time
+from services.logging import init_logging, log_event
 
 
 def send_to_lilly(data: dict) -> dict:
@@ -37,7 +38,9 @@ def send_to_lilly(data: dict) -> dict:
     except (requests.RequestException, ValueError):
         return {"error": "Lilly not available"}
 
+init_logging()  # initialize structured logging (JSON if ABU_VERBOSE=1)
 app = FastAPI(title="Abu Engine")
+app.swagger_ui_parameters = {"defaultModelsExpandDepth": -1}
 
 # Configurar CORS
 app.add_middleware(
@@ -47,6 +50,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
+# Simple HTTP timing middleware
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+        status = getattr(response, "status_code", 200)
+    except Exception as e:
+        status = 500
+        raise e
+    finally:
+        dur_ms = round((time.perf_counter() - start) * 1000, 2)
+        try:
+            log_event("request", {
+                "path": request.url.path,
+                "method": request.method,
+                "status": status,
+                "dur_ms": dur_ms
+            })
+        except Exception:
+            pass
+    return response
 
 @app.get("/")
 def root():
@@ -1225,8 +1251,8 @@ def analyze(payload: AnalyzeRequest = Body(...)):
     # - get_current_fardar + is_diurnal_chart: firdaria actual + secta
     # - calculate_annual_profection: casa anual (por signo desplazado)
     # - calculate_transits: aspectos Luna en tránsito a planetas natales
+    t0_total = time.perf_counter()
     try:
-        # Parse inputs
         birth_dt = datetime.fromisoformat(payload.birth.date.replace("Z", "+00:00"))
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid birth date format")
@@ -1242,13 +1268,16 @@ def analyze(payload: AnalyzeRequest = Body(...)):
         raise HTTPException(status_code=422, detail="Invalid current date format")
 
     # 1) Base natal chart (positions + aspects)
+    t0_chart = time.perf_counter()
     natal_chart = chart_json(payload.birth.lat, payload.birth.lon, birth_dt)
+    t1_chart = time.perf_counter()
 
     # 2) Houses (ASC/MC/cusps) using Swiss Ephemeris
     houses_block = None
     asc_lon = None
     mc_lon = None
     cusps = None
+    t0_houses = time.perf_counter()
     try:
         from core.houses_swiss import calculate_houses, format_houses_output, HOUSE_SYSTEM_PLACIDUS
         houses_data = calculate_houses(birth_dt, payload.birth.lat, payload.birth.lon, HOUSE_SYSTEM_PLACIDUS)
@@ -1259,23 +1288,25 @@ def analyze(payload: AnalyzeRequest = Body(...)):
         cusps = houses_data.get("cusps")
     except Exception as e:
         houses_block = {"note": f"Houses not available: {str(e)}"}
+    t1_houses = time.perf_counter()
 
     # 3) Detailed positions with dignities, assign houses if available
     planets_dict = {p.name: p.lon for p in natal_chart.planets}
+    t0_positions = time.perf_counter()
     try:
         detailed_planets = calculate_detailed_positions(planets_dict, houses=cusps)
     except Exception:
-        # Fallback without houses assignment
         detailed_planets = calculate_detailed_positions(planets_dict, houses=None)
+    t1_positions = time.perf_counter()
 
     # 4) Firdaria actual (major/sub) - requires diurnal/nocturnal from natal Sun/ASC
     firdaria_current = None
     sect_label = None
+    t0_firdaria = time.perf_counter()
     try:
         from core.fardars import get_current_fardar, is_diurnal_chart
         sun_lon = planets_dict.get("Sun", 0.0)
         if asc_lon is None:
-            # derive asc from houses if missing or default to 0
             asc_lon = 0.0
         is_diurnal = is_diurnal_chart(sun_lon, asc_lon)
         current_f = get_current_fardar(birth_dt, is_diurnal, current_dt)
@@ -1290,22 +1321,25 @@ def analyze(payload: AnalyzeRequest = Body(...)):
     except Exception:
         firdaria_current = None
         sect_label = None
+    t1_firdaria = time.perf_counter()
 
     # 5) Profección anual → casa (1..12). Derivamos ASC natal en signo.
     profection_house_num = None
+    t0_profection = time.perf_counter()
     try:
         asc_sign = get_sign_name(asc_lon or 0.0)
         from core.profections import calculate_annual_profection
         annual_prof = calculate_annual_profection(birth_dt, asc_sign, current_dt)
-        # sign_offset is 0-based; house is 1..12
         sign_offset = annual_prof.get("sign_offset")
         if isinstance(sign_offset, int):
             profection_house_num = (sign_offset % 12) + 1
     except Exception:
         profection_house_num = None
+    t1_profection = time.perf_counter()
 
     # 6) Tránsito lunar actual y aspectos a planetas natales
     lunar_transit = {"aspects": []}
+    t0_lunar = time.perf_counter()
     try:
         transit_chart = chart_json(payload.current.lat, payload.current.lon, current_dt)
         transit_planets = [
@@ -1316,7 +1350,6 @@ def analyze(payload: AnalyzeRequest = Body(...)):
         ]
         from core.transits import calculate_transits
         all_transits = calculate_transits(natal_planets, transit_planets)
-        # Keep only those where transit planet is Moon
         lunar_aspects_full = [t for t in all_transits if t.get("transit_planet") == "Moon"]
         simplified = [
             {"planet": t.get("natal_planet"), "type": t.get("aspect"), "orb": t.get("orb")}
@@ -1328,6 +1361,7 @@ def analyze(payload: AnalyzeRequest = Body(...)):
         }
     except Exception:
         pass
+    t1_lunar = time.perf_counter()
 
     # Assemble houses block to strict contract: { houses:[{house,start,end}], asc:number, mc:number }
     def _houses_contract(cusps_list: Optional[List[float]], asc_value: Optional[float], mc_value: Optional[float]):
@@ -1353,13 +1387,16 @@ def analyze(payload: AnalyzeRequest = Body(...)):
 
     # 7) Life cycles (optional block)
     life_cycles_block = None
+    t0_cycles = time.perf_counter()
     try:
         life_cycles_block = forecast_life_cycles(payload.birth.date)
     except Exception:
         life_cycles_block = {"error": "module not available"}
+    t1_cycles = time.perf_counter()
 
     # 8) Forecast timeseries (optional block)
     forecast_block = None
+    t0_forecast = time.perf_counter()
     try:
         from datetime import timedelta
         start_forecast = current_dt
@@ -1370,6 +1407,7 @@ def analyze(payload: AnalyzeRequest = Body(...)):
         )
     except Exception:
         forecast_block = {"error": "module not available"}
+    t1_forecast = time.perf_counter()
 
     response = {
         "person": {
@@ -1391,6 +1429,21 @@ def analyze(payload: AnalyzeRequest = Body(...)):
         "question": (payload.person.question if payload.person else "")
     }
 
+    t1_total = time.perf_counter()
+    try:
+        log_event("analyze.blocks", {
+            "dur_ms": round((t1_total - t0_total) * 1000, 2),
+            "chart_ms": round((t1_chart - t0_chart) * 1000, 2),
+            "houses_ms": round((t1_houses - t0_houses) * 1000, 2),
+            "positions_ms": round((t1_positions - t0_positions) * 1000, 2),
+            "firdaria_ms": round((t1_firdaria - t0_firdaria) * 1000, 2),
+            "profection_ms": round((t1_profection - t0_profection) * 1000, 2),
+            "lunar_ms": round((t1_lunar - t0_lunar) * 1000, 2),
+            "cycles_ms": round((t1_cycles - t0_cycles) * 1000, 2),
+            "forecast_ms": round((t1_forecast - t0_forecast) * 1000, 2)
+        })
+    except Exception:
+        pass
     return response
 
 
@@ -1442,7 +1495,7 @@ def interpret_endpoint(data: InterpretInput = Body(...)):
       - 502 si Lilly no responde o devuelve error.
     """
     logger = logging.getLogger(__name__)
-    t0 = time.perf_counter()
+    t_pipeline_start = time.perf_counter()
 
     if not data or data.birthDate is None or data.lat is None or data.lon is None:
         raise HTTPException(status_code=400, detail="Missing birthDate/lat/lon")
@@ -1460,7 +1513,9 @@ def interpret_endpoint(data: InterpretInput = Body(...)):
             birth=BirthData(date=data.birthDate, lat=data.lat, lon=data.lon),
             current=CurrentData(lat=data.lat, lon=data.lon, date=None),
         )
+        t0_analyze = time.perf_counter()
         payload = analyze(analyze_payload)  # type: ignore
+        t1_analyze = time.perf_counter()
         if isinstance(payload, JSONResponse):
             import json as _json
             payload = _json.loads(payload.body.decode("utf-8"))
@@ -1473,7 +1528,9 @@ def interpret_endpoint(data: InterpretInput = Body(...)):
     # 2) Llamar a Lilly a través del cliente interno
     try:
         from core.interpreter_llm import interpret_analysis
+        t0_lilly = time.perf_counter()
         result = interpret_analysis(payload=payload, language=data.language or "es")
+        t1_lilly = time.perf_counter()
         if isinstance(result, dict) and result.get("error") == "Lilly unreachable":
             logger.warning("/api/astro/interpret → Lilly unreachable")
             raise HTTPException(status_code=502, detail="Lilly unreachable")
@@ -1483,7 +1540,13 @@ def interpret_endpoint(data: InterpretInput = Body(...)):
         logger.exception("Lilly interpretation error: %s", str(e))
         raise HTTPException(status_code=502, detail="Lilly error")
 
-    elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    logger.info("/api/astro/interpret executed in %.1f ms", elapsed_ms)
+    try:
+        log_event("interpret.pipeline", {
+            "dur_ms": round((time.perf_counter() - t_pipeline_start) * 1000, 2),
+            "analyze_ms": round((t1_analyze - t0_analyze) * 1000, 2),
+            "lilly_ms": round((t1_lilly - t0_lilly) * 1000, 2)
+        })
+    except Exception:
+        pass
 
     return JSONResponse(content=result)

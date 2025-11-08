@@ -8,6 +8,7 @@ from pathlib import Path
 # Add abu_engine to path
 repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo_root))
+sys.path.insert(0, str(repo_root / 'abu_engine'))
 
 from fastapi.testclient import TestClient
 from abu_engine.main import app
