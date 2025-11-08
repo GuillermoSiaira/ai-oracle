@@ -2,18 +2,22 @@
 
 Ejemplos prácticos de requests y responses para los endpoints principales.
 
+**💡 Documentación interactiva completa**: Visita `/docs` (Swagger UI) o `/redoc` (ReDoc) en el servidor para ver ejemplos inline, campos detallados y requests de prueba.
+
 ## Tabla rápida
 | Endpoint | Método | Uso | Notas |
 |----------|--------|-----|-------|
-| `/analyze` | POST | Análisis agregado | Usa birth + current |
+| `/analyze` | POST | Análisis agregado | Usa birth + current; incluye ejemplos en /docs |
 | `/analyze/contract` | GET | JSON Schema del contrato | Validación UI |
-| `/api/astro/interpret` | POST | Orquestación cálculo + LLM | Fallback si Lilly cae |
+| `/api/astro/interpret` | POST | Orquestación cálculo + LLM | Fallback si Lilly cae; ver /docs para multi-idioma |
 | `/api/astro/solar-return` | GET | Carta de Revolución Solar | Año opcional |
 | `/api/astro/forecast` | GET | Serie temporal + picos | Requiere rango fechas |
 | `/api/astro/life-cycles` | GET | Eventos mayores (Saturn Return, etc.) | Sólo birthDate |
 
 ---
 ## 1. POST /analyze
+**🔗 Ver documentación completa en `/docs` con ejemplos reales de Buenos Aires (5 Julio 1978, 18:15)**
+
 Request mínimo:
 ```json
 {
@@ -54,6 +58,8 @@ Respuesta (recortada):
 
 ---
 ## 2. GET /analyze/contract
+**🔗 Ver documentación completa en `/docs` con explicaciones de uso (Zod, TypeScript, validación)**
+
 Describe la forma exacta del JSON esperado de `/analyze`.
 ```bash
 curl http://localhost:8000/analyze/contract
@@ -71,6 +77,8 @@ Usar este schema para validar en frontend (Zod si se desea).
 
 ---
 ## 3. POST /api/astro/interpret
+**🔗 Ver documentación completa en `/docs` con ejemplos multi-idioma (es/en/pt/fr) y fallback behavior**
+
 Request mínimo:
 ```json
 {

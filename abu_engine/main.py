@@ -83,7 +83,7 @@ def root():
     "/analyze/contract",
     responses={
         200: {
-            "description": "JSON Schema del contrato de /analyze",
+            "description": "JSON Schema for /analyze response structure - use for frontend validation (Zod, TypeScript types, etc.)",
             "content": {
                 "application/json": {
                     "example": {
@@ -91,10 +91,22 @@ def root():
                         "type": "object",
                         "required": ["chart", "derived"],
                         "properties": {
-                            "chart": {"type": "object"},
-                            "derived": {"type": "object"},
-                            "life_cycles": {"type": "object"},
-                            "forecast": {"type": "object"}
+                            "chart": {
+                                "type": "object",
+                                "description": "Natal chart with planetary positions and house cusps"
+                            },
+                            "derived": {
+                                "type": "object",
+                                "description": "Traditional timing techniques: sect, firdaria, profections, lunar transits"
+                            },
+                            "life_cycles": {
+                                "type": "object",
+                                "description": "Major life cycles (Saturn Return, Uranus Opposition, etc.)"
+                            },
+                            "forecast": {
+                                "type": "object",
+                                "description": "Astrological forecast timeseries with peak detection"
+                            }
                         }
                     }
                 }
@@ -104,8 +116,31 @@ def root():
 )
 def get_analyze_contract():
     """
-    Retorna el JSON Schema del contrato del endpoint POST /analyze.
-    Útil para que v0 y otros consumidores validen la estructura esperada.
+    **JSON Schema del contrato de /analyze**
+    
+    Este endpoint retorna el schema formal que define la estructura de respuesta del endpoint POST /analyze.
+    
+    **Casos de uso**:
+    - Validación de tipos en frontend (TypeScript, Zod)
+    - Generación automática de tipos cliente
+    - Testing de integración (verificar que response cumple schema)
+    - Documentación de contrato para consumidores externos
+    
+    **Campos principales**:
+    - `chart.planets`: Array con posiciones, signos, casas y dignidades esenciales
+    - `chart.houses`: Sistema de casas (Placidus) con ASC/MC
+    - `derived.sect`: "diurnal" o "nocturnal" (determina interpretación de planetas)
+    - `derived.firdaria`: Período planetario actual (técnica persa)
+    - `derived.profection`: Casa anual activada (técnica helenística)
+    - `life_cycles.events`: Ciclos mayores con fechas aproximadas
+    - `forecast.timeseries`: Scores diarios/semanales para período futuro
+    
+    **Ejemplo de uso con Zod**:
+    ```typescript
+    import { z } from 'zod';
+    const schema = await fetch('/analyze/contract').then(r => r.json());
+    // Convertir JSON Schema a Zod schema
+    ```
     """
     return {
         "title": "AnalyzeResponse",
@@ -1206,43 +1241,187 @@ class AnalyzeRequest(BaseModel):
         400: {"description": "Missing/invalid input"},
         422: {"description": "Invalid date format"},
         200: {
-            "description": "Aggregated analysis for UI and Abu Agent",
+            "description": "Aggregated astrological analysis combining natal chart, derived techniques, life cycles, and forecast",
             "content": {
                 "application/json": {
                     "example": {
-                        "person": {"name": "", "question": ""},
+                        "person": {
+                            "name": "María González",
+                            "question": "¿Qué energías se activan este mes?"
+                        },
                         "chart": {
                             "planets": [
                                 {
                                     "name": "Sun",
-                                    "longitude": 103.12,
+                                    "lon": 103.45,
+                                    "lat": 0.0,
+                                    "speed": 0.9856,
                                     "sign": "Cancer",
-                                    "degree_in_sign": 13.12,
+                                    "degree_in_sign": 13.45,
+                                    "formatted": "13°27' Cancer",
                                     "house": 10,
-                                    "dignity": {"score": 0}
+                                    "dignity": {
+                                        "domicile": False,
+                                        "exaltation": False,
+                                        "detriment": False,
+                                        "fall": False,
+                                        "peregrine": True,
+                                        "score": 0
+                                    }
+                                },
+                                {
+                                    "name": "Moon",
+                                    "lon": 245.82,
+                                    "lat": 2.1,
+                                    "speed": 13.2,
+                                    "sign": "Sagittarius",
+                                    "degree_in_sign": 25.82,
+                                    "formatted": "25°49' Sagittarius",
+                                    "house": 3,
+                                    "dignity": {
+                                        "domicile": False,
+                                        "exaltation": False,
+                                        "detriment": False,
+                                        "fall": False,
+                                        "peregrine": True,
+                                        "score": 0
+                                    }
                                 }
                             ],
-                            "houses": {"asc": {"sign": "Cancer"}, "mc": {"sign": "Aries"}}
+                            "houses": {
+                                "houses": [
+                                    {"house": 1, "start": 278.45, "end": 308.23},
+                                    {"house": 2, "start": 308.23, "end": 338.12}
+                                ],
+                                "asc": 278.45,
+                                "mc": 188.67
+                            }
                         },
                         "derived": {
-                            "firdaria_ruler": "Venus / Mercury",
-                            "profection_house": 7,
-                            "lunar_transit": {"aspects": []}
+                            "sect": "diurnal",
+                            "firdaria": {
+                                "current": {
+                                    "major": "Venus",
+                                    "sub": "Mercury",
+                                    "start": "2024-07-05",
+                                    "end": "2025-08-05"
+                                }
+                            },
+                            "profection": {
+                                "house": 7
+                            },
+                            "lunar_transit": {
+                                "moon_position": 125.34,
+                                "aspects": [
+                                    {"planet": "Sun", "type": "trine", "orb": 2.1},
+                                    {"planet": "Mars", "type": "square", "orb": 3.5}
+                                ]
+                            }
                         },
-                        "question": ""
+                        "life_cycles": {
+                            "events": [
+                                {"cycle": "Saturn Return", "planet": "Saturn", "angle": 0, "approx": "2007-07-15"},
+                                {"cycle": "Uranus Opposition", "planet": "Uranus", "angle": 180, "approx": "2020-03-12"}
+                            ]
+                        },
+                        "forecast": {
+                            "timeseries": [
+                                {"date": "2025-11-08T00:00:00Z", "score": 0.23},
+                                {"date": "2025-11-15T00:00:00Z", "score": 0.67}
+                            ],
+                            "peaks": [
+                                {"date": "2025-12-12T00:00:00Z", "score": 0.89, "type": "high"}
+                            ]
+                        },
+                        "question": "¿Qué energías se activan este mes?"
+                    }
+                }
+            }
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "buenos-aires": {
+                            "summary": "Consulta Buenos Aires (5 Julio 1978, 18:15)",
+                            "description": "Análisis completo para persona nacida en Buenos Aires",
+                            "value": {
+                                "person": {"name": "María González", "question": "¿Qué energías se activan este mes?"},
+                                "birth": {"date": "1978-07-05T18:15:00Z", "lat": -34.6037, "lon": -58.3816},
+                                "current": {"lat": -34.6037, "lon": -58.3816, "date": "2025-11-07T12:00:00Z"}
+                            }
+                        },
+                        "new-york-en": {
+                            "summary": "English example (New York)",
+                            "description": "Analysis request for person born in New York (July 5 1978, 2:15 PM UTC)",
+                            "value": {
+                                "person": {"name": "John Doe", "question": "What themes activate this month?", "language": "en"},
+                                "birth": {"date": "1978-07-05T18:15:00Z", "lat": 40.7128, "lon": -74.0060},
+                                "current": {"lat": 40.7128, "lon": -74.0060, "date": "2025-11-07T12:00:00Z"}
+                            }
+                        }
                     }
                 }
             }
         }
     }
 )
-def analyze(payload: AnalyzeRequest = Body(...)):
+def analyze(payload: AnalyzeRequest = Body(
+    ...,
+    examples={
+        "buenos-aires": {
+            "summary": "Consulta Buenos Aires (5 Julio 1978, 18:15)",
+            "description": "Análisis completo para persona nacida en Buenos Aires",
+            "value": {
+                "person": {"name": "María González", "question": "¿Qué energías se activan este mes?"},
+                "birth": {"date": "1978-07-05T18:15:00Z", "lat": -34.6037, "lon": -58.3816},
+                "current": {"lat": -34.6037, "lon": -58.3816, "date": "2025-11-07T12:00:00Z"}
+            }
+        },
+        "new-york-en": {
+            "summary": "English example (New York)",
+            "description": "Analysis request for person born in New York (July 5 1978, 2:15 PM UTC)",
+            "value": {
+                "person": {"name": "John Doe", "question": "What themes activate this month?", "language": "en"},
+                "birth": {"date": "1978-07-05T18:15:00Z", "lat": 40.7128, "lon": -74.0060},
+                "current": {"lat": 40.7128, "lon": -74.0060, "date": "2025-11-07T12:00:00Z"}
+            }
+        }
+    }
+)):
     """
-    Endpoint unificado para la UI/Agente Abu.
-
-    Recibe datos natales y ubicación actual, y devuelve:
-    - Carta (planetas con dignidades y casas)
-    - Derivados: Firdaria actual, profección anual (casa), tránsito lunar actual
+    **Endpoint unificado de análisis astrológico**
+    
+    Combina múltiples técnicas tradicionales y modernas:
+    
+    **Carta Natal (chart)**:
+    - `planets`: Posiciones planetarias con dignidades esenciales (domicilio, exaltación, caída, exilio)
+    - `houses`: Sistema Placidus con cúspides, ASC y MC
+    
+    **Técnicas Derivadas (derived)**:
+    - `sect`: Determina si la carta es diurna o nocturna (clave para interpretación de benéficos/maléficos)
+    - `firdaria`: Período planetario actual (sistema persa de cronología vital)
+      - `major`: Planeta regente del período mayor (7-10 años)
+      - `sub`: Subregente del período menor (~1 año)
+    - `profection`: Casa anual activada (técnica helenística, rota 30° por año)
+    - `lunar_transit`: Aspectos de la Luna en tránsito a planetas natales
+    
+    **Ciclos Vitales (life_cycles)**:
+    - Saturn Return (~29, ~58 años): madurez, estructura
+    - Uranus Opposition (~42 años): crisis de medio camino
+    - Neptune Square (~41 años): despertar espiritual
+    - Pluto Square (~37 años): transformación profunda
+    - Chiron Return (~50 años): sanación de heridas
+    
+    **Pronóstico (forecast)**:
+    - `timeseries`: Serie temporal de scores astrológicos (transits + progressions)
+    - `peaks`: Fechas de máxima/mínima intensidad energética
+    
+    **Errores comunes**:
+    - 422: Formato de fecha inválido (usar ISO8601 con sufijo Z o timezone)
+    - 400: Parámetros faltantes (birth o current)
     """
     # Internals (functions map):
     # - chart_json: posiciones + aspectos
@@ -1464,35 +1643,138 @@ class InterpretInput(BaseModel):
     responses={
         400: {"description": "Missing/invalid input"},
         422: {"description": "Invalid date format"},
-        502: {"description": "Lilly unreachable or error"},
+        502: {"description": "Lilly Engine unreachable or LLM error"},
         200: {
-            "description": "Interpretación generada por Lilly a partir del análisis de Abu",
+            "description": "Interpretación astrológica generada por LLM (GPT-4) basada en análisis técnico de Abu",
             "content": {
                 "application/json": {
                     "example": {
-                        "headline": "Ciclo de madurez y enfoque",
-                        "narrative": "La configuración actual sugiere...",
-                        "actions": ["Acción 1", "Acción 2", "Acción 3"],
-                        "astro_metadata": {"source": "openai", "language": "es"}
+                        "headline": "Venus-Mercurio: Creatividad y Comunicación Estratégica",
+                        "narrative": "Este período de Firdaria Venus/Mercurio (vigente hasta agosto 2025) activa fuertemente el eje relacional y comunicativo. La profección anual en casa 7 refuerza temas de pareja, asociaciones y negociación. Con la Luna transitando en aspecto armónico al Sol natal, es momento propicio para iniciar conversaciones importantes que combinen diplomacia (Venus) con claridad mental (Mercurio). Los próximos picos energéticos en diciembre señalan oportunidades para concretar acuerdos o proyectos creativos que venís gestando.",
+                        "actions": [
+                            "Iniciar diálogos estratégicos en relaciones clave (pareja, socios)",
+                            "Aprovechar inspiración creativa para proyectos artísticos o de diseño",
+                            "Revisar contratos o acuerdos pendientes antes del pico de diciembre"
+                        ],
+                        "astro_metadata": {
+                            "source": "openai",
+                            "language": "es",
+                            "model": "gpt-4",
+                            "techniques_used": ["firdaria", "profections", "lunar_transits", "forecast_peaks"]
+                        }
+                    }
+                }
+            }
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "es-buenos-aires": {
+                            "summary": "Consulta en español (Buenos Aires)",
+                            "description": "Interpretación completa para persona nacida en Buenos Aires, 5 Julio 1978",
+                            "value": {
+                                "birthDate": "1978-07-05T18:15:00Z",
+                                "lat": -34.6037,
+                                "lon": -58.3816,
+                                "language": "es"
+                            }
+                        },
+                        "en-new-york": {
+                            "summary": "English query (New York)",
+                            "description": "Full interpretation for person born in New York, July 5, 1978",
+                            "value": {
+                                "birthDate": "1978-07-05T18:15:00Z",
+                                "lat": 40.7128,
+                                "lon": -74.0060,
+                                "language": "en"
+                            }
+                        },
+                        "pt-sao-paulo": {
+                            "summary": "Consulta em português (São Paulo)",
+                            "description": "Interpretação em português para pessoa nascida em São Paulo, 5 Julho 1978",
+                            "value": {
+                                "birthDate": "1978-07-05T18:15:00Z",
+                                "lat": -23.5505,
+                                "lon": -46.6333,
+                                "language": "pt"
+                            }
+                        }
                     }
                 }
             }
         }
     }
 )
-def interpret_endpoint(data: InterpretInput = Body(...)):
+def interpret_endpoint(data: InterpretInput = Body(
+    ...,
+    examples={
+        "es-buenos-aires": {
+            "summary": "Consulta en español (Buenos Aires)",
+            "description": "Interpretación completa para persona nacida en Buenos Aires, 5 Julio 1978",
+            "value": {
+                "birthDate": "1978-07-05T18:15:00Z",
+                "lat": -34.6037,
+                "lon": -58.3816,
+                "language": "es"
+            }
+        },
+        "en-new-york": {
+            "summary": "English query (New York)",
+            "description": "Full interpretation for person born in New York, July 5, 1978",
+            "value": {
+                "birthDate": "1978-07-05T18:15:00Z",
+                "lat": 40.7128,
+                "lon": -74.0060,
+                "language": "en"
+            }
+        },
+        "pt-sao-paulo": {
+            "summary": "Consulta em português (São Paulo)",
+            "description": "Interpretação em português para pessoa nascida em São Paulo, 5 Julho 1978",
+            "value": {
+                "birthDate": "1978-07-05T18:15:00Z",
+                "lat": -23.5505,
+                "lon": -46.6333,
+                "language": "pt"
+            }
+        }
+    }
+)):
     """
-    Orquesta Abu → Lilly y devuelve JSON interpretativo.
-
-    Flujo:
-      1) Construye internamente el payload que usa /analyze (cálculo Abu).
-      2) Llama a core.interpreter_llm.interpret_analysis(payload, language) (Lilly).
-      3) Devuelve el JSON que responde Lilly (sin texto adicional).
-
-    Errores:
-      - 400 si faltan parámetros.
-      - 422 si el formato de fecha es inválido.
-      - 502 si Lilly no responde o devuelve error.
+    **Interpretación astrológica impulsada por LLM**
+    
+    Este endpoint orquesta el flujo completo: cálculo astrológico técnico (Abu) + interpretación narrativa (Lilly/GPT-4).
+    
+    **Flujo interno**:
+    1. Llama internamente a POST /analyze con los datos de nacimiento
+    2. Envía el análisis técnico completo a Lilly Engine (GPT-4 con contexto astrológico)
+    3. Lilly genera interpretación sintética combinando:
+       - Período de Firdaria actual (timing persa)
+       - Casa de Profección anual (timing helenístico)
+       - Tránsitos lunares recientes (activaciones)
+       - Picos de forecast (oportunidades/desafíos venideros)
+    
+    **Respuesta**:
+    - `headline`: Título sintético del momento astrológico (máx 80 caracteres)
+    - `narrative`: Interpretación detallada en 2-3 párrafos (150-250 palabras)
+    - `actions`: 3 acciones concretas recomendadas para el período
+    - `astro_metadata.source`: "openai" si LLM responde, "fallback" si usa arquetipos JSON
+    
+    **Idiomas soportados**:
+    - `es`: Español (default)
+    - `en`: English
+    - `pt`: Português
+    - `fr`: Français
+    
+    **Fallback behavior**:
+    Si Lilly Engine no está disponible o OPENAI_API_KEY falta, retorna interpretación basada en arquetipos predefinidos (source="fallback").
+    
+    **Errores**:
+    - 422: Fecha de nacimiento en formato inválido (usar ISO8601)
+    - 502: Lilly Engine caído o error de OpenAI API
     """
     logger = logging.getLogger(__name__)
     t_pipeline_start = time.perf_counter()
