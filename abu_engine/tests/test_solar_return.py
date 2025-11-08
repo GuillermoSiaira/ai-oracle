@@ -5,7 +5,7 @@ Verifies accurate Sun return time finding and chart generation.
 
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -17,7 +17,7 @@ def test_find_solar_return():
     print("=== Testing Solar Return Time Calculation ===")
     
     # Test case: birth date July 5, 1990 at noon
-    birth_date = datetime(1990, 7, 5, 12, 0, 0)
+    birth_date = datetime(1990, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
     lat, lon = 40.7128, -74.0060  # New York
     
     # Find solar return for 2025
@@ -41,7 +41,7 @@ def test_solar_return_accuracy():
     from skyfield.api import load
     from abu_engine.core.chart import EphemerisSingleton
     
-    birth_date = datetime(1985, 3, 15, 8, 30, 0)
+    birth_date = datetime(1985, 3, 15, 8, 30, 0, tzinfo=timezone.utc)
     lat, lon = 51.5074, -0.1278  # London
     
     # Get ephemeris
@@ -83,7 +83,7 @@ def test_solar_return_chart():
     """Test full solar return chart generation."""
     print("=== Testing Solar Return Chart Generation ===")
     
-    birth_date = datetime(1995, 11, 22, 18, 0, 0)
+    birth_date = datetime(1995, 11, 22, 18, 0, 0, tzinfo=timezone.utc)
     lat, lon = -23.5505, -46.6333  # São Paulo
     year = 2025
     
@@ -116,7 +116,7 @@ def test_multiple_years():
     """Test solar returns for multiple consecutive years."""
     print("=== Testing Multiple Years ===")
     
-    birth_date = datetime(2000, 1, 1, 0, 0, 0)
+    birth_date = datetime(2000, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     lat, lon = 0.0, 0.0  # Equator, prime meridian
     
     years = [2023, 2024, 2025]
@@ -125,13 +125,15 @@ def test_multiple_years():
     for year in years:
         sr_datetime = find_solar_return(birth_date, lat, lon, year)
         print(f"{year}: {sr_datetime}")
-        
-        assert sr_datetime.year == year, f"Solar return should be in year {year}"
-        
+        # For births near year boundaries (e.g., Jan 1 in UTC), the SR can fall on Dec 31 UTC
+        assert abs(sr_datetime.year - year) <= 1, (
+            f"Solar return should be around target year {year}, got {sr_datetime.year}"
+        )
         if previous_sr:
             days_diff = (sr_datetime - previous_sr).days
-            assert 364 <= days_diff <= 366, f"Solar returns should be ~365 days apart, got {days_diff}"
-        
+            assert 364 <= days_diff <= 366, (
+                f"Solar returns should be ~365 days apart, got {days_diff}"
+            )
         previous_sr = sr_datetime
     
     print("✓ Multiple year solar returns calculated correctly\n")

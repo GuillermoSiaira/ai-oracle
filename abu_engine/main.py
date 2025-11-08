@@ -1,5 +1,8 @@
 ﻿# -*- coding: utf-8 -*-
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Body
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import requests
@@ -18,6 +21,7 @@ from core.extended_calc import (
 )
 from core.solar_return_ranking import rank_solar_return_locations, RELOCATION_CITIES
 import logging
+import time
 
 
 def send_to_lilly(data: dict) -> dict:
@@ -47,6 +51,178 @@ app.add_middleware(
 @app.get("/")
 def root():
     return {"message": "Abu Engine is running correctly!"}
+
+
+@app.get(
+    "/analyze/contract",
+    responses={
+        200: {
+            "description": "JSON Schema del contrato de /analyze",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "title": "AnalyzeResponse",
+                        "type": "object",
+                        "required": ["chart", "derived"],
+                        "properties": {
+                            "chart": {"type": "object"},
+                            "derived": {"type": "object"},
+                            "life_cycles": {"type": "object"},
+                            "forecast": {"type": "object"}
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
+def get_analyze_contract():
+    """
+    Retorna el JSON Schema del contrato del endpoint POST /analyze.
+    Útil para que v0 y otros consumidores validen la estructura esperada.
+    """
+    return {
+        "title": "AnalyzeResponse",
+        "type": "object",
+        "required": ["chart", "derived"],
+        "properties": {
+            "chart": {
+                "type": "object",
+                "required": ["planets", "houses"],
+                "properties": {
+                    "planets": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["name", "lon", "lat", "speed", "sign", "dignity"],
+                            "properties": {
+                                "name": {"type": "string"},
+                                "lon": {"type": "number"},
+                                "lat": {"type": "number"},
+                                "speed": {"type": "number"},
+                                "sign": {"type": "string"},
+                                "dignity": {
+                                    "type": "object",
+                                    "required": ["domicile", "exaltation", "detriment", "fall", "score"],
+                                    "properties": {
+                                        "domicile": {"type": "boolean"},
+                                        "exaltation": {"type": "boolean"},
+                                        "detriment": {"type": "boolean"},
+                                        "fall": {"type": "boolean"},
+                                        "score": {"type": "integer"}
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "houses": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["number", "cusp_lon", "sign"],
+                            "properties": {
+                                "number": {"type": "integer"},
+                                "cusp_lon": {"type": "number"},
+                                "sign": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            },
+            "derived": {
+                "type": "object",
+                "required": ["sect", "firdaria", "profection", "lunar_transit"],
+                "properties": {
+                    "sect": {
+                        "type": "string",
+                        "enum": ["diurnal", "nocturnal"]
+                    },
+                    "firdaria": {
+                        "type": "object",
+                        "required": ["current"],
+                        "properties": {
+                            "current": {
+                                "type": "object",
+                                "required": ["major", "minor", "start", "end"],
+                                "properties": {
+                                    "major": {"type": "string"},
+                                    "minor": {"type": "string"},
+                                    "start": {"type": "string", "format": "date"},
+                                    "end": {"type": "string", "format": "date"}
+                                }
+                            }
+                        }
+                    },
+                    "profection": {
+                        "type": "object",
+                        "required": ["age", "house", "sign", "lord"],
+                        "properties": {
+                            "age": {"type": "integer"},
+                            "house": {"type": "integer"},
+                            "sign": {"type": "string"},
+                            "lord": {"type": "string"}
+                        }
+                    },
+                    "lunar_transit": {
+                        "type": "object",
+                        "required": ["moon_sign", "moon_house"],
+                        "properties": {
+                            "moon_sign": {"type": "string"},
+                            "moon_house": {"type": "integer"}
+                        }
+                    }
+                }
+            },
+            "life_cycles": {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["cycle", "planet", "angle", "approx"],
+                            "properties": {
+                                "cycle": {"type": "string"},
+                                "planet": {"type": "string"},
+                                "angle": {"type": "number"},
+                                "approx": {"type": "string", "format": "date"}
+                            }
+                        }
+                    },
+                    "error": {"type": "string"}
+                }
+            },
+            "forecast": {
+                "type": "object",
+                "properties": {
+                    "timeseries": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["date", "score"],
+                            "properties": {
+                                "date": {"type": "string", "format": "date-time"},
+                                "score": {"type": "number"}
+                            }
+                        }
+                    },
+                    "peaks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["date", "score", "type"],
+                            "properties": {
+                                "date": {"type": "string", "format": "date-time"},
+                                "score": {"type": "number"},
+                                "type": {"type": "string", "enum": ["high", "low"]}
+                            }
+                        }
+                    },
+                    "error": {"type": "string"}
+                }
+            }
+        }
+    }
 
 
 # Warm-up heavy resources on startup to avoid cold-start latency/errors
@@ -968,3 +1144,346 @@ def get_transits(
         return transits
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transits calculation error: {str(e)}")
+
+
+# ==========================
+# Analyze endpoint (core API)
+# ==========================
+
+class PersonInput(BaseModel):
+    name: Optional[str] = Field(default=None)
+    question: Optional[str] = Field(default="")
+
+
+class BirthData(BaseModel):
+    date: str = Field(description="ISO datetime, e.g. 1990-01-01T12:00:00Z")
+    lat: float
+    lon: float
+
+
+class CurrentData(BaseModel):
+    lat: float
+    lon: float
+    date: Optional[str] = Field(default=None, description="ISO datetime for current/transit time; defaults to now UTC if omitted")
+
+
+class AnalyzeRequest(BaseModel):
+    person: Optional[PersonInput] = Field(default_factory=PersonInput)
+    birth: BirthData
+    current: CurrentData
+
+
+@app.post(
+    "/analyze",
+    response_model=None,
+    responses={
+        400: {"description": "Missing/invalid input"},
+        422: {"description": "Invalid date format"},
+        200: {
+            "description": "Aggregated analysis for UI and Abu Agent",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "person": {"name": "", "question": ""},
+                        "chart": {
+                            "planets": [
+                                {
+                                    "name": "Sun",
+                                    "longitude": 103.12,
+                                    "sign": "Cancer",
+                                    "degree_in_sign": 13.12,
+                                    "house": 10,
+                                    "dignity": {"score": 0}
+                                }
+                            ],
+                            "houses": {"asc": {"sign": "Cancer"}, "mc": {"sign": "Aries"}}
+                        },
+                        "derived": {
+                            "firdaria_ruler": "Venus / Mercury",
+                            "profection_house": 7,
+                            "lunar_transit": {"aspects": []}
+                        },
+                        "question": ""
+                    }
+                }
+            }
+        }
+    }
+)
+def analyze(payload: AnalyzeRequest = Body(...)):
+    """
+    Endpoint unificado para la UI/Agente Abu.
+
+    Recibe datos natales y ubicación actual, y devuelve:
+    - Carta (planetas con dignidades y casas)
+    - Derivados: Firdaria actual, profección anual (casa), tránsito lunar actual
+    """
+    # Internals (functions map):
+    # - chart_json: posiciones + aspectos
+    # - calculate_houses: ASC/MC/cúspides
+    # - calculate_detailed_positions: dignidades + asignación de casas
+    # - get_current_fardar + is_diurnal_chart: firdaria actual + secta
+    # - calculate_annual_profection: casa anual (por signo desplazado)
+    # - calculate_transits: aspectos Luna en tránsito a planetas natales
+    try:
+        # Parse inputs
+        birth_dt = datetime.fromisoformat(payload.birth.date.replace("Z", "+00:00"))
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid birth date format")
+
+    # Current date defaults to now UTC
+    try:
+        from datetime import timezone
+        if payload.current.date:
+            current_dt = datetime.fromisoformat(payload.current.date.replace("Z", "+00:00"))
+        else:
+            current_dt = datetime.now(tz=timezone.utc)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid current date format")
+
+    # 1) Base natal chart (positions + aspects)
+    natal_chart = chart_json(payload.birth.lat, payload.birth.lon, birth_dt)
+
+    # 2) Houses (ASC/MC/cusps) using Swiss Ephemeris
+    houses_block = None
+    asc_lon = None
+    mc_lon = None
+    cusps = None
+    try:
+        from core.houses_swiss import calculate_houses, format_houses_output, HOUSE_SYSTEM_PLACIDUS
+        houses_data = calculate_houses(birth_dt, payload.birth.lat, payload.birth.lon, HOUSE_SYSTEM_PLACIDUS)
+        houses_formatted = format_houses_output(houses_data)
+        houses_block = houses_formatted
+        asc_lon = houses_data["asc"]
+        mc_lon = houses_data["mc"]
+        cusps = houses_data.get("cusps")
+    except Exception as e:
+        houses_block = {"note": f"Houses not available: {str(e)}"}
+
+    # 3) Detailed positions with dignities, assign houses if available
+    planets_dict = {p.name: p.lon for p in natal_chart.planets}
+    try:
+        detailed_planets = calculate_detailed_positions(planets_dict, houses=cusps)
+    except Exception:
+        # Fallback without houses assignment
+        detailed_planets = calculate_detailed_positions(planets_dict, houses=None)
+
+    # 4) Firdaria actual (major/sub) - requires diurnal/nocturnal from natal Sun/ASC
+    firdaria_current = None
+    sect_label = None
+    try:
+        from core.fardars import get_current_fardar, is_diurnal_chart
+        sun_lon = planets_dict.get("Sun", 0.0)
+        if asc_lon is None:
+            # derive asc from houses if missing or default to 0
+            asc_lon = 0.0
+        is_diurnal = is_diurnal_chart(sun_lon, asc_lon)
+        current_f = get_current_fardar(birth_dt, is_diurnal, current_dt)
+        if isinstance(current_f, dict):
+            firdaria_current = {
+                "major": current_f.get("major"),
+                "sub": current_f.get("sub"),
+                "start": current_f.get("start"),
+                "end": current_f.get("end"),
+            }
+        sect_label = "diurnal" if is_diurnal else "nocturnal"
+    except Exception:
+        firdaria_current = None
+        sect_label = None
+
+    # 5) Profección anual → casa (1..12). Derivamos ASC natal en signo.
+    profection_house_num = None
+    try:
+        asc_sign = get_sign_name(asc_lon or 0.0)
+        from core.profections import calculate_annual_profection
+        annual_prof = calculate_annual_profection(birth_dt, asc_sign, current_dt)
+        # sign_offset is 0-based; house is 1..12
+        sign_offset = annual_prof.get("sign_offset")
+        if isinstance(sign_offset, int):
+            profection_house_num = (sign_offset % 12) + 1
+    except Exception:
+        profection_house_num = None
+
+    # 6) Tránsito lunar actual y aspectos a planetas natales
+    lunar_transit = {"aspects": []}
+    try:
+        transit_chart = chart_json(payload.current.lat, payload.current.lon, current_dt)
+        transit_planets = [
+            {"name": p.name, "longitude": p.lon, "speed": 0} for p in transit_chart.planets
+        ]
+        natal_planets = [
+            {"name": p.name, "longitude": p.lon} for p in natal_chart.planets
+        ]
+        from core.transits import calculate_transits
+        all_transits = calculate_transits(natal_planets, transit_planets)
+        # Keep only those where transit planet is Moon
+        lunar_aspects_full = [t for t in all_transits if t.get("transit_planet") == "Moon"]
+        simplified = [
+            {"planet": t.get("natal_planet"), "type": t.get("aspect"), "orb": t.get("orb")}
+            for t in lunar_aspects_full
+        ]
+        lunar_transit = {
+            "moon_position": next((pp["longitude"] for pp in transit_planets if pp["name"] == "Moon"), None),
+            "aspects": simplified
+        }
+    except Exception:
+        pass
+
+    # Assemble houses block to strict contract: { houses:[{house,start,end}], asc:number, mc:number }
+    def _houses_contract(cusps_list: Optional[List[float]], asc_value: Optional[float], mc_value: Optional[float]):
+        try:
+            houses_list: List[Dict[str, Any]] = []
+            if isinstance(cusps_list, list) and len(cusps_list) >= 12:
+                for i in range(12):
+                    start = normalize_lon(float(cusps_list[i]))
+                    end = normalize_lon(float(cusps_list[(i + 1) % 12]))
+                    houses_list.append({
+                        "house": i + 1,
+                        "start": round(start, 6),
+                        "end": round(end, 6),
+                    })
+            return {
+                "houses": houses_list,
+                "asc": round(float(asc_value), 6) if asc_value is not None else None,
+                "mc": round(float(mc_value), 6) if mc_value is not None else None,
+            }
+        except Exception:
+            return {"houses": [], "asc": asc_value, "mc": mc_value}
+    houses_out = _houses_contract(cusps, asc_lon, mc_lon)
+
+    # 7) Life cycles (optional block)
+    life_cycles_block = None
+    try:
+        life_cycles_block = forecast_life_cycles(payload.birth.date)
+    except Exception:
+        life_cycles_block = {"error": "module not available"}
+
+    # 8) Forecast timeseries (optional block)
+    forecast_block = None
+    try:
+        from datetime import timedelta
+        start_forecast = current_dt
+        end_forecast = current_dt + timedelta(days=365)
+        forecast_block = forecast_timeseries(
+            birth_dt, payload.birth.lat, payload.birth.lon,
+            start_forecast, end_forecast, step="7d", horizon="year"
+        )
+    except Exception:
+        forecast_block = {"error": "module not available"}
+
+    response = {
+        "person": {
+            "name": payload.person.name if payload.person else None,
+            "question": payload.person.question if payload.person else ""
+        },
+        "chart": {
+            "planets": detailed_planets,
+            "houses": houses_out
+        },
+        "derived": {
+            "sect": sect_label,
+            "firdaria": {"current": firdaria_current} if firdaria_current is not None else {"current": None},
+            "profection": {"house": profection_house_num},
+            "lunar_transit": lunar_transit
+        },
+        "life_cycles": life_cycles_block,
+        "forecast": forecast_block,
+        "question": (payload.person.question if payload.person else "")
+    }
+
+    return response
+
+
+# ============================
+# Interpret endpoint (Abu → Lilly)
+# ============================
+
+class InterpretInput(BaseModel):
+    birthDate: str = Field(description="ISO datetime, e.g. 1990-01-01T12:00:00Z")
+    lat: float
+    lon: float
+    language: Optional[str] = Field(default="es", description="Idioma de la interpretación (por defecto 'es')")
+
+
+@app.post(
+    "/api/astro/interpret",
+    response_model=None,
+    responses={
+        400: {"description": "Missing/invalid input"},
+        422: {"description": "Invalid date format"},
+        502: {"description": "Lilly unreachable or error"},
+        200: {
+            "description": "Interpretación generada por Lilly a partir del análisis de Abu",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "headline": "Ciclo de madurez y enfoque",
+                        "narrative": "La configuración actual sugiere...",
+                        "actions": ["Acción 1", "Acción 2", "Acción 3"],
+                        "astro_metadata": {"source": "openai", "language": "es"}
+                    }
+                }
+            }
+        }
+    }
+)
+def interpret_endpoint(data: InterpretInput = Body(...)):
+    """
+    Orquesta Abu → Lilly y devuelve JSON interpretativo.
+
+    Flujo:
+      1) Construye internamente el payload que usa /analyze (cálculo Abu).
+      2) Llama a core.interpreter_llm.interpret_analysis(payload, language) (Lilly).
+      3) Devuelve el JSON que responde Lilly (sin texto adicional).
+
+    Errores:
+      - 400 si faltan parámetros.
+      - 422 si el formato de fecha es inválido.
+      - 502 si Lilly no responde o devuelve error.
+    """
+    logger = logging.getLogger(__name__)
+    t0 = time.perf_counter()
+
+    if not data or data.birthDate is None or data.lat is None or data.lon is None:
+        raise HTTPException(status_code=400, detail="Missing birthDate/lat/lon")
+
+    # Validar formato de fecha
+    try:
+        _ = datetime.fromisoformat(data.birthDate.replace("Z", "+00:00"))
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid date format")
+
+    # 1) Construir payload usando la misma lógica de analyze()
+    try:
+        analyze_payload = AnalyzeRequest(
+            person=PersonInput(name=None, question=""),
+            birth=BirthData(date=data.birthDate, lat=data.lat, lon=data.lon),
+            current=CurrentData(lat=data.lat, lon=data.lon, date=None),
+        )
+        payload = analyze(analyze_payload)  # type: ignore
+        if isinstance(payload, JSONResponse):
+            import json as _json
+            payload = _json.loads(payload.body.decode("utf-8"))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Analyze composition failed: %s", str(e))
+        raise HTTPException(status_code=500, detail="Internal analyze composition error")
+
+    # 2) Llamar a Lilly a través del cliente interno
+    try:
+        from core.interpreter_llm import interpret_analysis
+        result = interpret_analysis(payload=payload, language=data.language or "es")
+        if isinstance(result, dict) and result.get("error") == "Lilly unreachable":
+            logger.warning("/api/astro/interpret → Lilly unreachable")
+            raise HTTPException(status_code=502, detail="Lilly unreachable")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Lilly interpretation error: %s", str(e))
+        raise HTTPException(status_code=502, detail="Lilly error")
+
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    logger.info("/api/astro/interpret executed in %.1f ms", elapsed_ms)
+
+    return JSONResponse(content=result)

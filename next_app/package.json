@@ -17,7 +17,8 @@
     "leaflet": "^1.9.4",
     "react-leaflet": "^4.2.1",
     "recharts": "2.x",
-    "swr": "2.x"
+    "swr": "2.x",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^24.9.2",
